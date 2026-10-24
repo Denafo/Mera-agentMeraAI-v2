@@ -1,4 +1,4 @@
-name: Build Mera AI v2 APK
+name: MeraAI-Android-v2-fixed.zip
 
 on:
   workflow_dispatch:
@@ -18,12 +18,12 @@ jobs:
       - name: Extract V2 project
         run: |
           set -e
-          test -f MeraAI-Android-v2.zip
-          unzip -q MeraAI-Android-v2.zip -d extracted
-          test -f extracted/MeraAI-Android-v2/settings.gradle.kts
+          test -f MeraAI-Android-v2-fixed.zip
+          unzip -q MeraAI-Android-v2-fixed.zip -d extracted
+          test -f extracted/MeraAI-Android-v2-fixed.zip/settings.gradle.kts
 
       - name: Validate source
-        run: python3 extracted/MeraAI-Android-v2/scripts/validate_project.py
+        run: python3 extracted/MeraAI-Android-v2-fixed.zip/scripts/validate_project.py
 
       - name: Setup Java
         uses: actions/setup-java@v4
