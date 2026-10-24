@@ -1,7 +1,11 @@
-name: MeraAI-Android-v2-fixed.zip
+name: Build Mera AI v2 APK
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-apk.yml'
+      - 'MeraAI-Android-v2-fixed.zip'
 
 permissions:
   contents: read
@@ -9,40 +13,90 @@ permissions:
 jobs:
   android:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 60
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract V2 project
+      - name: Extract source and locate actual Android folder
+        shell: bash
         run: |
-          set -e
-          test -f MeraAI-Android-v2-fixed.zip
-          unzip -q MeraAI-Android-v2-fixed.zip -d extracted
-          test -f extracted/MeraAI-Android-v2-fixed.zip/settings.gradle.kts
+          set -euo pipefail
+          ZIP='MeraAI-Android-v2-fixed.zip'
+          if [[ ! -f "$ZIP" ]]; then
+            echo "::error::Missing $ZIP in repository root"
+            exit 1
+          fi
+          mkdir -p extracted
+          unzip -q "$ZIP" -d extracted
+          mapfile -t projects < <(find extracted -type f -name settings.gradle.kts -print)
+          if [[ ${#projects[@]} -ne 1 ]]; then
+            echo "::error::Expected one Android project, found ${#projects[@]}"
+            printf '%s\n' "${projects[@]}"
+            exit 1
+          fi
+          PROJECT_DIR="$(dirname "${projects[0]}")"
+          if [[ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]]; then
+            echo '::error::Missing Android app/build.gradle.kts'
+            exit 1
+          fi
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Found Android project at: $PROJECT_DIR"
 
-      - name: Validate source
-        run: python3 extracted/MeraAI-Android-v2-fixed.zip/scripts/validate_project.py
+      - name: Validate corrected source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$PROJECT_DIR/scripts/validate_project.py"
+          grep -Fq 'jvmTarget.set(JvmTarget.JVM_17)' "$PROJECT_DIR/app/build.gradle.kts"
+          if grep -Fq 'jvmTarget = "17"' "$PROJECT_DIR/app/build.gradle.kts"; then
+            echo '::error::Old Kotlin jvmTarget configuration detected'
+            exit 1
+          fi
 
-      - name: Setup Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Gradle
+      - name: Set up Gradle 8.11.1
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
 
-      - name: Build APK
-        working-directory: extracted/MeraAI-Android-v2
-        run: gradle --no-daemon --console=plain assembleDebug
+      - name: Check Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          test -n "$SDK_DIR" || { echo '::error::Android SDK not found'; exit 1; }
+          if [[ ! -d "$SDK_DIR/platforms/android-35" || ! -d "$SDK_DIR/build-tools/35.0.0" ]]; then
+            SDKMANAGER="$SDK_DIR/cmdline-tools/latest/bin/sdkmanager"
+            test -x "$SDKMANAGER" || { echo '::error::sdkmanager missing'; exit 1; }
+            "$SDKMANAGER" --install 'platforms;android-35' 'build-tools;35.0.0'
+          fi
 
-      - name: Upload APK
+      - name: Compile debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          gradle --no-daemon --console=plain assembleDebug 2>&1 | tee build.log
+
+      - name: Upload error log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MeraAI-build-error-log
+          path: extracted/**/build.log
+          if-no-files-found: ignore
+
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: MeraAI-v2-APK
-          path: extracted/MeraAI-Android-v2/app/build/outputs/apk/debug/*.apk
+          path: extracted/**/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+          
