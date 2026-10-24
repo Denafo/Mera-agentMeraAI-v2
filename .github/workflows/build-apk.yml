@@ -1,0 +1,48 @@
+name: Build Mera AI v2 APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract V2 project
+        run: |
+          set -e
+          test -f MeraAI-Android-v2.zip
+          unzip -q MeraAI-Android-v2.zip -d extracted
+          test -f extracted/MeraAI-Android-v2/settings.gradle.kts
+
+      - name: Validate source
+        run: python3 extracted/MeraAI-Android-v2/scripts/validate_project.py
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Build APK
+        working-directory: extracted/MeraAI-Android-v2
+        run: gradle --no-daemon --console=plain assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MeraAI-v2-APK
+          path: extracted/MeraAI-Android-v2/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
