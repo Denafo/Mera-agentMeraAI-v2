@@ -1,0 +1,63 @@
+name: Build Mera AI v2.3 Diagnostic APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-meraai-v23.yml'
+      - 'MeraAI-Android-v2.3-diagnostic.zip'
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract diagnostic source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f MeraAI-Android-v2.3-diagnostic.zip
+          mkdir -p extracted
+          unzip -q MeraAI-Android-v2.3-diagnostic.zip -d extracted
+          test -f extracted/MeraAI-Android-v2.3-diagnostic/settings.gradle.kts
+          python3 extracted/MeraAI-Android-v2.3-diagnostic/scripts/validate_project.py
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Build APK
+        working-directory: extracted/MeraAI-Android-v2.3-diagnostic
+        shell: bash
+        run: |
+          set -o pipefail
+          gradle --no-daemon --console=plain assembleDebug 2>&1 | tee build.log
+
+      - name: Upload build log if failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MeraAI-v2.3-Build-Log
+          path: extracted/MeraAI-Android-v2.3-diagnostic/build.log
+          if-no-files-found: ignore
+
+      - name: Upload diagnostic APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MeraAI-v2.3-Diagnostic-APK
+          path: extracted/MeraAI-Android-v2.3-diagnostic/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
